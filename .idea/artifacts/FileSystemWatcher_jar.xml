@@ -1,0 +1,10 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="FileSystemWatcher:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/FileSystemWatcher_jar</output-path>
+    <root id="archive" name="FileSystemWatcher.jar">
+      <element id="module-output" name="FileSystemWatcher" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/../Downloads/sqlite-jdbc-3.45.1.0.jar" path-in-jar="/" />
+      <element id="file-copy" path="$PROJECT_DIR$/../Downloads/sqlite-jdbc-3.45.1.0.jar" />
+    </root>
+  </artifact>
+</component>
