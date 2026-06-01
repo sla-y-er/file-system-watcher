@@ -9,7 +9,7 @@ import java.util.List;
 
 public class CsvReportWriter implements ReportWriter {
 
-    private String outputDirectory;
+    private final String outputDirectory;
 
     public CsvReportWriter() {
         this("reports");
@@ -17,7 +17,6 @@ public class CsvReportWriter implements ReportWriter {
 
     public CsvReportWriter(String outputDirectory) {
         this.outputDirectory = outputDirectory;
-
         File dir = new File(outputDirectory);
         if (!dir.exists()) {
             dir.mkdirs();
@@ -27,7 +26,6 @@ public class CsvReportWriter implements ReportWriter {
     @Override
     public void printToConsole(List<FileEvent> rows) {
         System.out.println("\n========== FILE EVENT REPORT ==========");
-
         for (FileEvent event : rows) {
             System.out.println(
                     event.getTimestamp() + " | " +
@@ -37,7 +35,6 @@ public class CsvReportWriter implements ReportWriter {
                     event.getFullPath()
             );
         }
-
         System.out.println("Total events: " + rows.size());
         System.out.println("=======================================\n");
     }
@@ -45,32 +42,51 @@ public class CsvReportWriter implements ReportWriter {
     @Override
     public void writeToFile(List<FileEvent> rows, String name) {
         String filePath = outputDirectory + File.separator + name;
-
         try (FileWriter writer = new FileWriter(filePath)) {
-            writer.write("fileName,extension,fullPath,activityType,timestamp\n");
-
+            writer.write("file_name,extension,path,activity,event_datetime\n");
             for (FileEvent event : rows) {
-                writer.write(String.format("\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"%n",
-                        safe(event.getFileName()),
-                        safe(event.getExtension()),
-                        safe(event.getFullPath()),
-                        event.getActivityType(),
-                        event.getTimestamp()
-                ));
+                writer.write(formatRow(event));
             }
-
-            System.out.println("CSV report saved to: " + filePath);
-
         } catch (IOException e) {
             throw new RuntimeException("Could not write CSV report: " + e.getMessage(), e);
         }
     }
 
-    private String safe(String value) {
-        if (value == null) {
-            return "";
+    /**
+     * Writes query results to a CSV file with a human-readable query summary at the top.
+     * @param rows            the result rows to export
+     * @param fullOutputPath  absolute file path to write (including .csv extension)
+     * @param queryDescription multi-line description of the query that produced the rows
+     */
+    public void writeToFileWithHeader(List<FileEvent> rows, String fullOutputPath, String queryDescription) {
+        try (FileWriter writer = new FileWriter(fullOutputPath)) {
+            // query info block (prefixed with # so it reads as comments)
+            if (queryDescription != null && !queryDescription.isBlank()) {
+                for (String line : queryDescription.split("\n", -1)) {
+                    writer.write(line + "\n");
+                }
+            }
+            // column headers
+            writer.write("file_name,extension,path,activity,event_datetime\n");
+            for (FileEvent event : rows) {
+                writer.write(formatRow(event));
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Could not write CSV export: " + e.getMessage(), e);
         }
+    }
 
+    private String formatRow(FileEvent event) {
+        return String.format("\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"%n",
+                safe(event.getFileName()),
+                safe(event.getExtension()),
+                safe(event.getFullPath()),
+                event.getActivityType() != null ? event.getActivityType().name() : "",
+                event.getTimestamp() != null ? event.getTimestamp().toString() : "");
+    }
+
+    private String safe(String value) {
+        if (value == null) return "";
         return value.replace("\"", "\"\"");
     }
 }
