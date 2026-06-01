@@ -1,71 +1,32 @@
 package com.fsw.main;
 
 import com.fsw.database.EventDatabase;
-import com.fsw.email.EmailSender;
-import com.fsw.query.QueryEngine;
-import com.fsw.report.CsvReportWriter;
-import com.fsw.report.ReportWriter;
-import com.fsw.watcher.FileWatcher;
+import com.fsw.gui.WatcherFrame;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Scanner;
+import javax.swing.*;
 
 public class MainWatcher {
 
-    private FileWatcher watcher;
-    private QueryEngine engine;
-    private Scanner scanner;
-    private EventDatabase database;
-    private EmailSender emailSender;
-
     public static void main(String[] args) {
-        MainWatcher app = new MainWatcher();
-        app.showMenu();
-    }
+        // Use the OS look-and-feel so the app feels native on Windows
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception ignored) {}
 
-    public void showMenu() {
-
-        scanner = new Scanner(System.in);
-
-        database = new EventDatabase("eventlog.db");
-        database.connect();
-
-        ReportWriter writer = new CsvReportWriter("reports");
-        engine = new QueryEngine(database, writer);
-
-        emailSender = new EmailSender();
-
-        System.out.println("=================================");
-        System.out.println("     File System Watcher");
-        System.out.println("=================================");
-
-        System.out.print("Enter folder path to monitor: ");
-
-        String folderPath = scanner.nextLine();
-
-        startWatch(folderPath);
-    }
-
-    public void startWatch(String folderPath) {
-
-        Path path = Paths.get(folderPath);
-
-        if (!Files.exists(path) || !Files.isDirectory(path)) {
-            System.out.println("Invalid folder path.");
-            return;
+        EventDatabase database = new EventDatabase("eventlog.db");
+        try {
+            database.connect();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(null,
+                "Failed to open the database:\n" + e.getMessage() +
+                "\n\nMake sure sqlite-jdbc-3.45.3.0.jar is on the classpath.",
+                "Startup Error", JOptionPane.ERROR_MESSAGE);
+            System.exit(1);
         }
 
-        watcher = new FileWatcher(path, database);
-
-        System.out.println("Watching folder: "
-                + path.toAbsolutePath());
-
-        watcher.start();
-    }
-
-    public void startWatch() {
-        showMenu();
+        SwingUtilities.invokeLater(() -> {
+            WatcherFrame frame = new WatcherFrame(database);
+            frame.setVisible(true);
+        });
     }
 }
