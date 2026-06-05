@@ -8,7 +8,9 @@ import java.sql.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class EventDatabase implements Queryable {
 
@@ -103,6 +105,51 @@ public class EventDatabase implements Queryable {
         } catch (SQLException e) {
             throw new RuntimeException("Clear failed: " + e.getMessage(), e);
         }
+    }
+
+    /** Computes summary statistics over all stored events using SQL aggregation. */
+    public DatabaseStats getStatistics() {
+        int total = 0;
+        String earliest = null;
+        String latest = null;
+
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
+                 "SELECT COUNT(*) AS n, MIN(event_datetime) AS lo, MAX(event_datetime) AS hi " +
+                 "FROM file_events WHERE event_datetime IS NOT NULL AND event_datetime <> ''")) {
+            if (rs.next()) {
+                total    = rs.getInt("n");
+                earliest = rs.getString("lo");
+                latest   = rs.getString("hi");
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Statistics query failed: " + e.getMessage(), e);
+        }
+
+        Map<String, Integer> byActivity = groupCount(
+            "SELECT activity AS k, COUNT(*) AS n FROM file_events " +
+            "GROUP BY activity ORDER BY n DESC");
+
+        Map<String, Integer> byExtension = groupCount(
+            "SELECT CASE WHEN extension IS NULL OR extension = '' THEN '(none)' ELSE extension END AS k, " +
+            "COUNT(*) AS n FROM file_events GROUP BY k ORDER BY n DESC");
+
+        return new DatabaseStats(total, earliest, latest, byActivity, byExtension);
+    }
+
+    /** Runs a "SELECT key, count" grouping query and returns an ordered map. */
+    private Map<String, Integer> groupCount(String sql) {
+        Map<String, Integer> map = new LinkedHashMap<>();
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                String key = rs.getString("k");
+                map.put((key == null || key.isBlank()) ? "(none)" : key, rs.getInt("n"));
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Statistics query failed: " + e.getMessage(), e);
+        }
+        return map;
     }
 
     @Override

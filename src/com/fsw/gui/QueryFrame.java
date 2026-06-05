@@ -127,6 +127,7 @@ public class QueryFrame extends JDialog {
         table.setGridColor(Color.LIGHT_GRAY);
         table.setFillsViewportHeight(true);
         table.setRowHeight(22);
+        table.setRowSorter(new javax.swing.table.TableRowSorter<>(tableModel));
 
         return new JScrollPane(table);
     }

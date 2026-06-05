@@ -4,8 +4,11 @@ import com.fsw.database.EventDatabase;
 import com.fsw.model.FileEvent;
 import com.fsw.watcher.FileWatcher;
 
+import com.fsw.database.DatabaseStats;
+
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.IOException;
@@ -37,9 +40,12 @@ public class WatcherFrame extends JFrame {
     // --- UI components ---
     private DefaultTableModel tableModel;
     private JTable eventTable;
+    private TableRowSorter<DefaultTableModel> tableSorter;
+    private JTextField quickFilterField;
     private JTextField pathField;
     private JComboBox<String> extensionCombo;
     private JTextField customExtField;
+    private JCheckBox recursiveCheck;
     private JLabel statusLabel;
     private JLabel countLabel;
 
@@ -131,11 +137,17 @@ public class WatcherFrame extends JFrame {
         queryItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_D, InputEvent.CTRL_DOWN_MASK));
         queryItem.addActionListener(e -> openQueryWindow());
 
+        JMenuItem statsItem = new JMenuItem("Statistics");
+        statsItem.setMnemonic(KeyEvent.VK_S);
+        statsItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_T, InputEvent.CTRL_DOWN_MASK));
+        statsItem.addActionListener(e -> showStatistics());
+
         JMenuItem clearDbItem = new JMenuItem("Clear Database");
         clearDbItem.setMnemonic(KeyEvent.VK_C);
         clearDbItem.addActionListener(e -> clearDatabase());
 
         dbMenu.add(queryItem);
+        dbMenu.add(statsItem);
         dbMenu.addSeparator();
         dbMenu.add(clearDbItem);
 
@@ -169,12 +181,14 @@ public class WatcherFrame extends JFrame {
         stopBtn    = toolButton("Stop",     "Stop monitoring (F6)");
         writeDbBtn = toolButton("Write DB", "Save current events to database (Ctrl+S)");
         queryBtn   = toolButton("Query DB", "Open query window (Ctrl+D)");
+        JButton statsBtn = toolButton("Stats", "Show database statistics (Ctrl+T)");
         clearBtn   = toolButton("Clear",    "Clear the event display (Ctrl+L)");
 
         startBtn.addActionListener(e   -> startWatcher());
         stopBtn.addActionListener(e    -> stopWatcher());
         writeDbBtn.addActionListener(e -> writeToDatabase());
         queryBtn.addActionListener(e   -> openQueryWindow());
+        statsBtn.addActionListener(e   -> showStatistics());
         clearBtn.addActionListener(e   -> clearEventView());
 
         toolbar.add(startBtn);
@@ -182,6 +196,7 @@ public class WatcherFrame extends JFrame {
         toolbar.addSeparator();
         toolbar.add(writeDbBtn);
         toolbar.add(queryBtn);
+        toolbar.add(statsBtn);
         toolbar.addSeparator();
         toolbar.add(clearBtn);
 
@@ -212,12 +227,17 @@ public class WatcherFrame extends JFrame {
         customExtField.setEnabled(false);
         filter.add(customExtField);
 
+        recursiveCheck = new JCheckBox("Include subfolders");
+        recursiveCheck.setToolTipText("Also monitor every sub-directory of the watched folder");
+        filter.add(Box.createHorizontalStrut(8));
+        filter.add(recursiveCheck);
+
         north.add(toolbar, BorderLayout.NORTH);
         north.add(filter,  BorderLayout.SOUTH);
         return north;
     }
 
-    private JScrollPane buildTablePanel() {
+    private JPanel buildTablePanel() {
         tableModel = new DefaultTableModel(COLUMNS, 0) {
             @Override public boolean isCellEditable(int r, int c) { return false; }
         };
@@ -234,7 +254,37 @@ public class WatcherFrame extends JFrame {
         eventTable.setFillsViewportHeight(true);
         eventTable.setRowHeight(22);
 
-        return new JScrollPane(eventTable);
+        // click column headers to sort
+        tableSorter = new TableRowSorter<>(tableModel);
+        eventTable.setRowSorter(tableSorter);
+
+        // live quick-filter across all columns
+        JPanel filterRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        filterRow.add(new JLabel("Quick filter:"));
+        quickFilterField = new JTextField(24);
+        quickFilterField.setToolTipText("Show only rows containing this text (any column)");
+        quickFilterField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { applyQuickFilter(); }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { applyQuickFilter(); }
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { applyQuickFilter(); }
+        });
+        filterRow.add(quickFilterField);
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(filterRow, BorderLayout.NORTH);
+        panel.add(new JScrollPane(eventTable), BorderLayout.CENTER);
+        return panel;
+    }
+
+    /** Applies the quick-filter text as a case-insensitive "contains" filter over all columns. */
+    private void applyQuickFilter() {
+        String text = quickFilterField.getText().trim();
+        if (text.isEmpty()) {
+            tableSorter.setRowFilter(null);
+        } else {
+            // (?i) = case-insensitive; quote the text so it is matched literally
+            tableSorter.setRowFilter(RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(text)));
+        }
     }
 
     private JPanel buildStatusBar() {
@@ -293,12 +343,15 @@ public class WatcherFrame extends JFrame {
         String ext = resolveExtension();
         if (ext == null) return; // validation failed inside resolveExtension()
 
+        boolean recursive = recursiveCheck.isSelected();
+
         try {
-            watcher = new FileWatcher(Paths.get(path), ext, this::onFileEvent);
+            watcher = new FileWatcher(Paths.get(path), ext, recursive, this::onFileEvent);
             watcher.start();
             updateButtonStates(true);
             setStatus("Monitoring: " + path +
-                      (ext.isBlank() ? " (all files)" : " [." + ext + "]"));
+                      (ext.isBlank() ? " (all files)" : " [." + ext + "]") +
+                      (recursive ? " + subfolders" : ""));
         } catch (IOException ex) {
             showError("Failed to start watcher:\n" + ex.getMessage());
         }
@@ -349,9 +402,12 @@ public class WatcherFrame extends JFrame {
             event.getActivityType() != null ? event.getActivityType().name() : "",
             event.getTimestamp() != null ? event.getTimestamp().format(DT_FMT) : ""
         });
-        // scroll to the newest row
+        // scroll to the newest row (convert model index -> view index for the sorter)
         int last = tableModel.getRowCount() - 1;
-        eventTable.scrollRectToVisible(eventTable.getCellRect(last, 0, true));
+        int viewRow = eventTable.convertRowIndexToView(last);
+        if (viewRow >= 0) {
+            eventTable.scrollRectToVisible(eventTable.getCellRect(viewRow, 0, true));
+        }
     }
 
     private void writeToDatabase() {
@@ -398,6 +454,15 @@ public class WatcherFrame extends JFrame {
         queryFrame.setVisible(true);
     }
 
+    private void showStatistics() {
+        try {
+            DatabaseStats stats = database.getStatistics();
+            new StatisticsDialog(this, stats).setVisible(true);
+        } catch (Exception ex) {
+            showError("Could not compute statistics:\n" + ex.getMessage());
+        }
+    }
+
     private void clearDatabase() {
         int choice = JOptionPane.showConfirmDialog(this,
             "This will permanently delete ALL records from the database.\nAre you sure?",
@@ -429,10 +494,13 @@ public class WatcherFrame extends JFrame {
             "<li>Press <b>Stop</b> (F6) when finished.</li>" +
             "<li>Press <b>Write DB</b> (Ctrl+S) to persist events to SQLite.</li>" +
             "<li>Press <b>Query DB</b> (Ctrl+D) to search records and export CSV.</li>" +
+            "<li>Press <b>Stats</b> (Ctrl+T) for a breakdown of saved events.</li>" +
             "<li>On exit you will be prompted to save any unsaved events.</li>" +
             "</ol>" +
+            "<b>Tips:</b> tick <i>Include subfolders</i> to watch nested folders, " +
+            "click a column header to sort, and use <i>Quick filter</i> to search the live table.<br>" +
             "<br><b>Keyboard shortcuts:</b> F5 Start &nbsp; F6 Stop &nbsp; " +
-            "Ctrl+S Save &nbsp; Ctrl+D Query &nbsp; Ctrl+Q Exit &nbsp; F1 About" +
+            "Ctrl+S Save &nbsp; Ctrl+D Query &nbsp; Ctrl+T Stats &nbsp; Ctrl+Q Exit &nbsp; F1 About" +
             "</html>";
         JOptionPane.showMessageDialog(this, msg,
             "About File System Watcher", JOptionPane.INFORMATION_MESSAGE);
@@ -477,6 +545,7 @@ public class WatcherFrame extends JFrame {
         stopItem.setEnabled(watching);
         pathField.setEditable(!watching);
         extensionCombo.setEnabled(!watching);
+        recursiveCheck.setEnabled(!watching);
         boolean isCustom = "Custom...".equals(extensionCombo.getSelectedItem());
         customExtField.setEnabled(!watching && isCustom);
     }
