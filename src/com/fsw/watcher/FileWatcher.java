@@ -11,6 +11,21 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
+/**
+ * Monitors a directory for file activity and reports each change as a {@link FileEvent}.
+ *
+ * <p>Built on the Java NIO {@link WatchService}, the watcher runs on a background
+ * daemon thread so the caller (the GUI) stays responsive. It detects create,
+ * modify, and delete events and delivers them to a caller-supplied callback. It
+ * can optionally watch every sub-directory recursively, automatically registering
+ * new sub-directories as they are created. An optional extension filter limits
+ * which files are reported, and a short debounce window suppresses rapid duplicate
+ * events for the same file.
+ *
+ * @author Sudip Chaudhary
+ * @author Ali Wafaee
+ * @version 1.0
+ */
 public class FileWatcher {
 
     private static final long DEBOUNCE_MS = 500;
@@ -30,10 +45,25 @@ public class FileWatcher {
     // tracks last-seen time per (path+kind) to debounce rapid duplicate events
     private final Map<String, Long> lastEventTime = new HashMap<>();
 
+    /**
+     * Creates a non-recursive watcher.
+     *
+     * @param path            the directory to watch
+     * @param extensionFilter extension to report (dot optional); blank/null reports all files
+     * @param eventCallback   invoked once per reported event
+     */
     public FileWatcher(Path path, String extensionFilter, Consumer<FileEvent> eventCallback) {
         this(path, extensionFilter, false, eventCallback);
     }
 
+    /**
+     * Creates a watcher, optionally recursive.
+     *
+     * @param path            the directory to watch
+     * @param extensionFilter extension to report (dot optional); blank/null reports all files
+     * @param recursive       if {@code true}, also watch all sub-directories
+     * @param eventCallback   invoked once per reported event
+     */
     public FileWatcher(Path path, String extensionFilter, boolean recursive, Consumer<FileEvent> eventCallback) {
         this.watchPath = path;
         this.extensionFilter = (extensionFilter == null) ? "" : extensionFilter.replace(".", "").trim();
@@ -41,7 +71,11 @@ public class FileWatcher {
         this.eventCallback = eventCallback;
     }
 
-    /** Starts watching in a background daemon thread. Non-blocking. */
+    /**
+     * Starts watching in a background daemon thread. Non-blocking.
+     *
+     * @throws IOException if the watch service cannot be created or the path registered
+     */
     public void start() throws IOException {
         watchService = FileSystems.getDefault().newWatchService();
 
@@ -57,6 +91,7 @@ public class FileWatcher {
         thread.start();
     }
 
+    /** Stops watching and releases the watch service. Safe to call more than once. */
     public void stop() {
         running = false;
         try {
@@ -66,7 +101,12 @@ public class FileWatcher {
         } catch (IOException ignored) {}
     }
 
-    /** Registers a single directory with the watch service. */
+    /**
+     * Registers a single directory with the watch service.
+     *
+     * @param dir the directory to register
+     * @throws IOException if registration fails
+     */
     private void register(Path dir) throws IOException {
         WatchKey key = dir.register(
                 watchService,
@@ -77,7 +117,12 @@ public class FileWatcher {
         watchedDirs.put(key, dir);
     }
 
-    /** Recursively registers a directory and all of its existing sub-directories. */
+    /**
+     * Recursively registers a directory and all of its existing sub-directories.
+     *
+     * @param root the root directory of the tree to register
+     * @throws IOException if walking the tree fails
+     */
     private void registerTree(Path root) throws IOException {
         Files.walk(root)
                 .filter(Files::isDirectory)
@@ -87,6 +132,7 @@ public class FileWatcher {
                 });
     }
 
+    /** Background loop: polls for watch keys and dispatches their events until stopped. */
     private void watchLoop() {
         try {
             while (running) {
@@ -112,6 +158,13 @@ public class FileWatcher {
         }
     }
 
+    /**
+     * Converts one raw watch event into a {@link FileEvent} and delivers it to the
+     * callback, applying recursive registration, extension filtering, and debouncing.
+     *
+     * @param dir the directory the event originated from
+     * @param e   the raw watch event
+     */
     private void processEvent(Path dir, WatchEvent<?> e) {
         WatchEvent.Kind<?> kind = e.kind();
         if (kind == StandardWatchEventKinds.OVERFLOW) return;
@@ -153,6 +206,12 @@ public class FileWatcher {
         }
     }
 
+    /**
+     * Maps a watch-event kind to the corresponding {@link ActivityType}.
+     *
+     * @param kind the watch-event kind
+     * @return the matching activity type, or {@code null} if unrecognized
+     */
     private ActivityType resolveActivity(WatchEvent.Kind<?> kind) {
         if (kind == StandardWatchEventKinds.ENTRY_CREATE) return ActivityType.CREATED;
         if (kind == StandardWatchEventKinds.ENTRY_MODIFY) return ActivityType.MODIFIED;
@@ -160,6 +219,12 @@ public class FileWatcher {
         return null;
     }
 
+    /**
+     * Extracts a file's extension (without the dot).
+     *
+     * @param name the file name
+     * @return the extension, or an empty string if there is none
+     */
     private String getExtension(String name) {
         int i = name.lastIndexOf('.');
         return (i > 0) ? name.substring(i + 1) : "";

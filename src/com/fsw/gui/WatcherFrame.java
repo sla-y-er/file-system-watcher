@@ -18,6 +18,20 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Main application window.
+ *
+ * <p>Provides the user interface for selecting a folder, starting and stopping
+ * monitoring, and viewing events live in a sortable, quick-filterable table. It
+ * owns a {@link FileWatcher} (created when monitoring starts), persists events to
+ * the {@link EventDatabase} on demand, and opens the {@link QueryFrame} and
+ * {@link StatisticsDialog}. Events arrive on the watcher's background thread and
+ * are marshalled onto the Swing event-dispatch thread before the table updates.
+ *
+ * @author Sudip Chaudhary
+ * @author Ali Wafaee
+ * @version 1.0
+ */
 public class WatcherFrame extends JFrame {
 
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -56,6 +70,11 @@ public class WatcherFrame extends JFrame {
     // only one query window at a time
     private QueryFrame queryFrame;
 
+    /**
+     * Creates the main window wired to the given database.
+     *
+     * @param database the open event database used for saving and querying
+     */
     public WatcherFrame(EventDatabase database) {
         super("File System Watcher");
         this.database = database;
@@ -66,6 +85,7 @@ public class WatcherFrame extends JFrame {
     // UI construction
     // -----------------------------------------------------------------------
 
+    /** Builds the window: menu bar, north controls, event table, and status bar. */
     private void buildUI() {
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setSize(950, 600);
@@ -84,6 +104,11 @@ public class WatcherFrame extends JFrame {
         updateButtonStates(false);
     }
 
+    /**
+     * Builds the menu bar (File, Watcher, Database, Help) with accelerators.
+     *
+     * @return the assembled menu bar
+     */
     private JMenuBar buildMenuBar() {
         JMenuBar bar = new JMenuBar();
 
@@ -237,6 +262,11 @@ public class WatcherFrame extends JFrame {
         return north;
     }
 
+    /**
+     * Builds the event table (sortable columns) with the quick-filter row above it.
+     *
+     * @return the assembled table panel
+     */
     private JPanel buildTablePanel() {
         tableModel = new DefaultTableModel(COLUMNS, 0) {
             @Override public boolean isCellEditable(int r, int c) { return false; }
@@ -287,6 +317,11 @@ public class WatcherFrame extends JFrame {
         }
     }
 
+    /**
+     * Builds the bottom status bar (status message on the left, event count on the right).
+     *
+     * @return the assembled status bar
+     */
     private JPanel buildStatusBar() {
         JPanel bar = new JPanel(new BorderLayout());
         bar.setBorder(BorderFactory.createLoweredBevelBorder());
@@ -299,6 +334,13 @@ public class WatcherFrame extends JFrame {
         return bar;
     }
 
+    /**
+     * Creates a toolbar button with the given label and tooltip.
+     *
+     * @param text the button label
+     * @param tip  the tooltip text
+     * @return the configured button
+     */
     private JButton toolButton(String text, String tip) {
         JButton b = new JButton(text);
         b.setToolTipText(tip);
@@ -310,12 +352,14 @@ public class WatcherFrame extends JFrame {
     // Event handlers
     // -----------------------------------------------------------------------
 
+    /** Enables the custom-extension field only when "Custom..." is selected and not watching. */
     private void onExtensionComboChanged() {
         boolean isCustom = "Custom...".equals(extensionCombo.getSelectedItem());
         customExtField.setEnabled(isCustom && !stopBtn.isEnabled()); // only if not watching
         if (isCustom) customExtField.requestFocus();
     }
 
+    /** Opens a directory chooser and, on approval, fills the path field. */
     private void browseFolder() {
         JFileChooser fc = new JFileChooser();
         fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
@@ -325,6 +369,7 @@ public class WatcherFrame extends JFrame {
         }
     }
 
+    /** Validates the inputs and starts monitoring the selected folder. */
     private void startWatcher() {
         String path = pathField.getText().trim();
         if (path.isEmpty()) {
@@ -375,6 +420,7 @@ public class WatcherFrame extends JFrame {
         return sel.replace(".", "").trim();
     }
 
+    /** Stops the watcher (if running) and updates the controls and status. */
     private void stopWatcher() {
         if (watcher != null) {
             watcher.stop();
@@ -394,6 +440,11 @@ public class WatcherFrame extends JFrame {
         });
     }
 
+    /**
+     * Appends one event as a new table row and scrolls it into view.
+     *
+     * @param event the event to display
+     */
     private void appendTableRow(FileEvent event) {
         tableModel.addRow(new Object[]{
             event.getFileName(),
@@ -410,6 +461,7 @@ public class WatcherFrame extends JFrame {
         }
     }
 
+    /** Persists the unsaved (pending) events to the database, avoiding duplicates. */
     private void writeToDatabase() {
         if (pendingEvents.isEmpty()) {
             JOptionPane.showMessageDialog(this,
@@ -430,6 +482,7 @@ public class WatcherFrame extends JFrame {
         }
     }
 
+    /** Clears the displayed events (with confirmation if there are unsaved events). */
     private void clearEventView() {
         if (!allEvents.isEmpty()) {
             int choice = JOptionPane.showConfirmDialog(this,
@@ -445,6 +498,7 @@ public class WatcherFrame extends JFrame {
         setStatus("Event view cleared.");
     }
 
+    /** Opens the query window, bringing the existing one to front if already open. */
     private void openQueryWindow() {
         if (queryFrame != null && queryFrame.isVisible()) {
             queryFrame.toFront();
@@ -454,6 +508,7 @@ public class WatcherFrame extends JFrame {
         queryFrame.setVisible(true);
     }
 
+    /** Computes statistics from the database and shows them in a dialog. */
     private void showStatistics() {
         try {
             DatabaseStats stats = database.getStatistics();
@@ -463,6 +518,7 @@ public class WatcherFrame extends JFrame {
         }
     }
 
+    /** Deletes all records from the database after the user confirms. */
     private void clearDatabase() {
         int choice = JOptionPane.showConfirmDialog(this,
             "This will permanently delete ALL records from the database.\nAre you sure?",
@@ -479,6 +535,7 @@ public class WatcherFrame extends JFrame {
         }
     }
 
+    /** Shows the About/Help dialog with usage instructions and shortcuts. */
     private void showAbout() {
         String msg =
             "<html>" +
@@ -506,6 +563,10 @@ public class WatcherFrame extends JFrame {
             "About File System Watcher", JOptionPane.INFORMATION_MESSAGE);
     }
 
+    /**
+     * Handles application exit: prompts to save unsaved events, stops the watcher,
+     * closes the database, and terminates.
+     */
     private void onExit() {
         if (!pendingEvents.isEmpty()) {
             int choice = JOptionPane.showConfirmDialog(this,
@@ -538,6 +599,11 @@ public class WatcherFrame extends JFrame {
     // Helpers
     // -----------------------------------------------------------------------
 
+    /**
+     * Enables or disables controls based on whether monitoring is active.
+     *
+     * @param watching {@code true} while monitoring is running
+     */
     private void updateButtonStates(boolean watching) {
         startBtn.setEnabled(!watching);
         stopBtn.setEnabled(watching);
@@ -550,10 +616,20 @@ public class WatcherFrame extends JFrame {
         customExtField.setEnabled(!watching && isCustom);
     }
 
+    /**
+     * Updates the status bar message.
+     *
+     * @param msg the message to show
+     */
     private void setStatus(String msg) {
         statusLabel.setText("  " + msg);
     }
 
+    /**
+     * Shows a modal error dialog.
+     *
+     * @param msg the error message to display
+     */
     private void showError(String msg) {
         JOptionPane.showMessageDialog(this, msg, "Error", JOptionPane.ERROR_MESSAGE);
     }

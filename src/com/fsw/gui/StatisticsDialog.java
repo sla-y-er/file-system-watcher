@@ -15,6 +15,10 @@ import java.util.Map;
  * Read-only dialog presenting a summary of everything stored in the database:
  * total records, the time span they cover, and breakdowns by activity type
  * and by file extension. The summary can be exported to a CSV file.
+ *
+ * @author Sudip Chaudhary
+ * @author Ali Wafaee
+ * @version 1.0
  */
 public class StatisticsDialog extends JDialog {
 
@@ -22,6 +26,12 @@ public class StatisticsDialog extends JDialog {
 
     private final DatabaseStats stats;
 
+    /**
+     * Creates the statistics dialog for the given snapshot.
+     *
+     * @param parent the owning window
+     * @param stats  the statistics snapshot to display
+     */
     public StatisticsDialog(Frame parent, DatabaseStats stats) {
         super(parent, "Database Statistics", true);
         this.stats = stats;
@@ -31,6 +41,11 @@ public class StatisticsDialog extends JDialog {
         setLocationRelativeTo(parent);
     }
 
+    /**
+     * Builds the dialog content: an HTML summary pane plus Export/Close buttons.
+     *
+     * @param stats the statistics to render
+     */
     private void buildUI(DatabaseStats stats) {
         setLayout(new BorderLayout(8, 8));
 
@@ -61,6 +76,12 @@ public class StatisticsDialog extends JDialog {
             JComponent.WHEN_IN_FOCUSED_WINDOW);
     }
 
+    /**
+     * Renders the statistics as an HTML fragment for display.
+     *
+     * @param s the statistics to render
+     * @return the HTML document text
+     */
     private String buildHtml(DatabaseStats s) {
         StringBuilder sb = new StringBuilder("<html><body style='font-family:sans-serif'>");
         sb.append("<h2 style='margin:0 0 6px 0'>Database Statistics</h2>");
@@ -82,10 +103,25 @@ public class StatisticsDialog extends JDialog {
         return sb.append("</body></html>").toString();
     }
 
+    /**
+     * Formats one label/value pair as an HTML table row.
+     *
+     * @param label the row label
+     * @param value the row value
+     * @return the HTML {@code <tr>} markup
+     */
     private String row(String label, String value) {
         return "<tr><td><b>" + label + ":</b></td><td>&nbsp;" + value + "</td></tr>";
     }
 
+    /**
+     * Formats a titled breakdown table (key, count, and percentage of total) as HTML.
+     *
+     * @param title the section heading
+     * @param data  the counts keyed by category
+     * @param total the overall total used to compute percentages
+     * @return the HTML markup for the section
+     */
     private String section(String title, Map<String, Integer> data, int total) {
         StringBuilder sb = new StringBuilder();
         sb.append("<h3 style='margin:12px 0 4px 0'>").append(title).append("</h3>");
@@ -106,6 +142,7 @@ public class StatisticsDialog extends JDialog {
     // CSV export
     // -----------------------------------------------------------------------
 
+    /** Prompts for a save location and writes the statistics summary to a CSV file. */
     private void exportCsv() {
         JFileChooser fc = new JFileChooser();
         fc.setDialogTitle("Save Statistics as CSV");
@@ -147,6 +184,13 @@ public class StatisticsDialog extends JDialog {
         return sb.toString();
     }
 
+    /**
+     * Appends a titled breakdown (category, count, percent) to the CSV builder.
+     *
+     * @param sb    the builder to append to
+     * @param title the section title / first-column header
+     * @param data  the counts keyed by category
+     */
     private void appendBreakdown(StringBuilder sb, String title, Map<String, Integer> data) {
         sb.append(csv(title)).append(",Count,Percent\n");
         int total = stats.getTotal();

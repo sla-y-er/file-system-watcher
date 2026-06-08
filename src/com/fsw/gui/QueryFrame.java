@@ -17,6 +17,19 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 
+/**
+ * Non-modal dialog for searching the event database and exporting results.
+ *
+ * <p>Lets the user filter stored events by start/end date, extension, activity
+ * type, and directory path, displays the matching rows in a sortable table, and
+ * exports the current results to a CSV file (with a query-summary header). It can
+ * also clear the entire database. The main window remains usable while this dialog
+ * is open.
+ *
+ * @author Sudip Chaudhary
+ * @author Ali Wafaee
+ * @version 1.0
+ */
 public class QueryFrame extends JDialog {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -34,6 +47,12 @@ public class QueryFrame extends JDialog {
     private List<FileEvent> lastResults;      // results from the most recent query
     private QueryFilter     lastFilter;       // filter used for the most recent query
 
+    /**
+     * Creates the query dialog.
+     *
+     * @param parent   the owning window
+     * @param database the event database to query and export from
+     */
     public QueryFrame(Frame parent, EventDatabase database) {
         super(parent, "Query Database", false); // non-modal: main window stays usable
         this.database = database;
@@ -44,6 +63,7 @@ public class QueryFrame extends JDialog {
     // UI construction
     // -----------------------------------------------------------------------
 
+    /** Assembles the dialog: filter panel, results table, button bar, and Esc-to-close. */
     private void buildUI() {
         setSize(950, 600);
         setMinimumSize(new Dimension(750, 450));
@@ -63,6 +83,11 @@ public class QueryFrame extends JDialog {
         );
     }
 
+    /**
+     * Builds the filter panel (date range, extension, activity, directory).
+     *
+     * @return the assembled filter panel
+     */
     private JPanel buildFilterPanel() {
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setBorder(BorderFactory.createTitledBorder("Filter  (leave fields blank to match all)"));
@@ -112,6 +137,11 @@ public class QueryFrame extends JDialog {
         return panel;
     }
 
+    /**
+     * Builds the scrollable, sortable results table.
+     *
+     * @return the assembled results panel
+     */
     private JScrollPane buildResultsPanel() {
         tableModel = new DefaultTableModel(COLUMNS, 0) {
             @Override public boolean isCellEditable(int r, int c) { return false; }
@@ -132,6 +162,12 @@ public class QueryFrame extends JDialog {
         return new JScrollPane(table);
     }
 
+    /**
+     * Builds the action button bar (Show All, Query, Export, Clear, Close) and wires
+     * Enter-to-query on the filter fields.
+     *
+     * @return the assembled button bar
+     */
     private JPanel buildButtonBar() {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
 
@@ -189,6 +225,12 @@ public class QueryFrame extends JDialog {
     // Actions
     // -----------------------------------------------------------------------
 
+    /**
+     * Builds a filter from the input fields (or an empty one) and runs the query,
+     * populating the results table.
+     *
+     * @param showAll if {@code true}, ignore the filter fields and retrieve all records
+     */
     private void runQuery(boolean showAll) {
         QueryFilter filter = new QueryFilter();
 
@@ -244,6 +286,11 @@ public class QueryFrame extends JDialog {
         }
     }
 
+    /**
+     * Replaces the table contents with the given events.
+     *
+     * @param events the rows to display
+     */
     private void populateTable(List<FileEvent> events) {
         tableModel.setRowCount(0);
         for (FileEvent e : events) {
@@ -257,6 +304,7 @@ public class QueryFrame extends JDialog {
         }
     }
 
+    /** Prompts for a save location and exports the current results to CSV with a header. */
     private void exportCsv() {
         if (lastResults == null || lastResults.isEmpty()) {
             JOptionPane.showMessageDialog(this,
@@ -304,6 +352,7 @@ public class QueryFrame extends JDialog {
                "# Records   : " + lastResults.size() + "\n";
     }
 
+    /** Deletes all records from the database after the user confirms. */
     private void clearDatabase() {
         int choice = JOptionPane.showConfirmDialog(this,
             "This will permanently delete ALL records from the database.\n" +
@@ -324,6 +373,11 @@ public class QueryFrame extends JDialog {
         }
     }
 
+    /**
+     * Shows a modal error dialog.
+     *
+     * @param msg the error message to display
+     */
     private void showError(String msg) {
         JOptionPane.showMessageDialog(this, msg, "Error", JOptionPane.ERROR_MESSAGE);
     }

@@ -12,6 +12,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * SQLite-backed persistence layer for file events.
+ *
+ * <p>Stores events in a single embedded database file in a {@code file_events}
+ * table that is created automatically on {@link #connect()}. Supports inserting
+ * events, clearing the store, filtered querying via {@link QueryFilter},
+ * computing summary {@link DatabaseStats statistics}, and exporting to CSV. All
+ * queries use parameterized SQL, so special characters in file paths cannot break
+ * or inject into statements.
+ *
+ * @author Sudip Chaudhary
+ * @author Ali Wafaee
+ * @version 1.0
+ */
 public class EventDatabase implements Queryable {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -19,14 +33,25 @@ public class EventDatabase implements Queryable {
     private final String dbFilePath;
     private Connection conn;
 
+    /** Creates a database backed by the default {@code eventlog.db} file. */
     public EventDatabase() {
         this("eventlog.db");
     }
 
+    /**
+     * Creates a database backed by the given file.
+     *
+     * @param dbFilePath the SQLite database file path
+     */
     public EventDatabase(String dbFilePath) {
         this.dbFilePath = dbFilePath;
     }
 
+    /**
+     * Opens the connection and ensures the schema exists.
+     *
+     * @throws RuntimeException if the JDBC driver is missing or the connection fails
+     */
     public void connect() {
         try {
             Class.forName("org.sqlite.JDBC");
@@ -40,6 +65,7 @@ public class EventDatabase implements Queryable {
         }
     }
 
+    /** Closes the database connection if it is open; errors are ignored. */
     public void disconnect() {
         try {
             if (conn != null && !conn.isClosed()) {
@@ -48,6 +74,12 @@ public class EventDatabase implements Queryable {
         } catch (SQLException ignored) {}
     }
 
+    /**
+     * Creates the {@code file_events} table if absent and backfills any columns
+     * missing from an older schema.
+     *
+     * @throws SQLException if the table cannot be created
+     */
     private void createTable() throws SQLException {
         // Create table if it doesn't exist at all
         try (Statement stmt = conn.createStatement()) {
@@ -67,7 +99,13 @@ public class EventDatabase implements Queryable {
         ensureColumn("event_datetime",  "TEXT");
     }
 
-    /** Adds a column to file_events if it doesn't already exist. SQLite throws on duplicate — we ignore that. */
+    /**
+     * Adds a column to {@code file_events} if it doesn't already exist. SQLite throws
+     * on a duplicate column, which is caught and ignored.
+     *
+     * @param column the column name
+     * @param type   the column's SQL type
+     */
     private void ensureColumn(String column, String type) {
         try (Statement stmt = conn.createStatement()) {
             stmt.execute("ALTER TABLE file_events ADD COLUMN " + column + " " + type);
@@ -76,6 +114,12 @@ public class EventDatabase implements Queryable {
         }
     }
 
+    /**
+     * Inserts a single event.
+     *
+     * @param event the event to store
+     * @throws RuntimeException if the insert fails
+     */
     public void insert(FileEvent event) {
         String sql = "INSERT INTO file_events (file_name, extension, path, activity, event_datetime) " +
                      "VALUES (?,?,?,?,?)";
@@ -91,7 +135,11 @@ public class EventDatabase implements Queryable {
         }
     }
 
-    /** Inserts a batch of events, each committed individually via autocommit. */
+    /**
+     * Inserts a batch of events, each committed individually via autocommit.
+     *
+     * @param events the events to store; {@code null} or empty is a no-op
+     */
     public void insertAll(List<FileEvent> events) {
         if (events == null || events.isEmpty()) return;
         for (FileEvent e : events) {
@@ -99,6 +147,11 @@ public class EventDatabase implements Queryable {
         }
     }
 
+    /**
+     * Deletes all stored events.
+     *
+     * @throws RuntimeException if the delete fails
+     */
     public void clearAll() {
         try (Statement stmt = conn.createStatement()) {
             stmt.execute("DELETE FROM file_events");
@@ -107,7 +160,12 @@ public class EventDatabase implements Queryable {
         }
     }
 
-    /** Computes summary statistics over all stored events using SQL aggregation. */
+    /**
+     * Computes summary statistics over all stored events using SQL aggregation.
+     *
+     * @return a snapshot of totals, time span, and per-activity / per-extension counts
+     * @throws RuntimeException if a statistics query fails
+     */
     public DatabaseStats getStatistics() {
         int total = 0;
         String earliest = null;
@@ -137,7 +195,13 @@ public class EventDatabase implements Queryable {
         return new DatabaseStats(total, earliest, latest, byActivity, byExtension);
     }
 
-    /** Runs a "SELECT key, count" grouping query and returns an ordered map. */
+    /**
+     * Runs a "SELECT key, count" grouping query and returns an insertion-ordered map.
+     *
+     * @param sql a query selecting a key column {@code k} and a count column {@code n}
+     * @return the counts keyed by {@code k}, preserving the query's ordering
+     * @throws RuntimeException if the query fails
+     */
     private Map<String, Integer> groupCount(String sql) {
         Map<String, Integer> map = new LinkedHashMap<>();
         try (Statement stmt = conn.createStatement();
@@ -152,6 +216,13 @@ public class EventDatabase implements Queryable {
         return map;
     }
 
+    /**
+     * Returns the stored events matching the given filter, newest first.
+     *
+     * @param f the criteria to filter by; {@code null} or an empty filter matches all
+     * @return the matching events ordered by timestamp descending
+     * @throws RuntimeException if the query fails
+     */
     @Override
     public List<FileEvent> query(QueryFilter f) {
         StringBuilder sql = new StringBuilder(
@@ -214,6 +285,12 @@ public class EventDatabase implements Queryable {
         return results;
     }
 
+    /**
+     * Exports every stored event to a CSV file at the given path.
+     *
+     * @param path the destination file path
+     * @throws RuntimeException if the file cannot be written
+     */
     @Override
     public void exportToCsv(String path) {
         List<FileEvent> rows = query(new QueryFilter());
@@ -229,6 +306,12 @@ public class EventDatabase implements Queryable {
         }
     }
 
+    /**
+     * Escapes a value for CSV by doubling embedded quotes; null becomes empty.
+     *
+     * @param v the raw value
+     * @return the escaped value, never {@code null}
+     */
     private String safe(String v) {
         return v == null ? "" : v.replace("\"", "\"\"");
     }
